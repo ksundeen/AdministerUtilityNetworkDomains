@@ -1,0 +1,137 @@
+"""
+Name: enable_enterprise_gdb.py
+Description: Provide connection information to an enterprise database
+and enable enterprise geodatabase.
+Type enable_enterprise_gdb.py -h or enable_enterprise_gdb.py --help for usage
+"""
+
+# Import system modules
+import arcpy, os, optparse, sys
+
+
+# Define usage and version
+parser = optparse.OptionParser(usage = "usage: %prog [Options]", version="%prog 1.0 for " + arcpy.GetInstallInfo()['Version'] )
+
+#Define help and options
+parser.add_option ("--DBMS", dest="Database_type", type="choice", choices=['SQLSERVER', 'ORACLE', 'POSTGRESQL', 'DB2','INFORMIX','DB2ZOS', ''], default="", help="Type of enterprise DBMS:  SQLSERVER, ORACLE, POSTGRESQL, DB2, INFORMIX, or DB2ZOS.")
+parser.add_option ("-i", dest="Instance", type="string", default="", help="DBMS instance name")
+parser.add_option ("--auth", dest="account_authentication", type ="choice", choices=['DATABASE_AUTH', 'OPERATING_SYSTEM_AUTH'], default='DATABASE_AUTH', help="Authentication type options (case-sensitive):  DATABASE_AUTH, OPERATING_SYSTEM_AUTH.  Default=DATABASE_AUTH")
+parser.add_option ("-u", dest="User", type="string", default="", help="Geodatabase administrator user name")
+parser.add_option ("-p", dest="Password", type="string", default="", help="Geodatabase  administrator password")
+parser.add_option ("-D", dest="Database", type="string", default="none", help="Database name:  Not required for Oracle")
+parser.add_option ("-l", dest="Authorization_file", type="string", default="", help="Full path and name of authorization file")
+
+
+# Check if value entered for option
+try:
+	(options, args) = parser.parse_args()
+
+	
+#Check if no system arguments (options) entered
+	if len(sys.argv) == 1:
+		print "%s: error: %s\n" % (sys.argv[0], "No command options given")
+		parser.print_help()
+		sys.exit(3)
+	
+
+	#Usage parameters for spatial database connection
+	database_type = options.Database_type.upper()
+	instance = options.Instance
+	account_authentication = options.account_authentication.upper()
+	username = options.User.lower() 
+	password = options.Password	
+	database = options.Database.lower()
+	license = options.Authorization_file
+
+
+	if( database_type ==""):	
+		print " \n%s: error: \n%s\n" % (sys.argv[0], "DBMS type (--DBMS) must be specified.")
+		parser.print_help()
+		sys.exit(3)		
+		
+	if (license == ""):
+		print " \n%s: error: \n%s\n" % (sys.argv[0], "Authorization file (-l) must be specified.")
+		parser.print_help()
+		sys.exit(3)
+
+	if (database_type == "SQLSERVER"):
+		database_type = "SQL_SERVER"
+		
+	# Get the current product license
+	product_license=arcpy.ProductInfo()
+	
+	if (license == ""):
+		print " \n%s: error: %s\n" % (sys.argv[0], "Authorization file (-l) must be specified.")
+		parser.print_help()
+		sys.exit(3)
+	
+	# Checks required license level
+	if product_license.upper() == "ARCVIEW" or product_license.upper() == 'ENGINE':
+		print "\n" + product_license + " license found!" + "  Enabling enterprise geodatabase functionality requires an ArcGIS Desktop Standard or Advanced, ArcGIS Engine with the Geodatabase Update extension, or ArcGIS Server license."
+		sys.exit("Re-authorize ArcGIS before enabling an enterprise geodatabase.")
+	else:
+		print "\n" + product_license + " license available!  Continuing to enable..."
+		arcpy.AddMessage("+++++++++")
+	
+	# Local variables
+	instance_temp = instance.replace("\\","_")
+	instance_temp = instance_temp.replace("/","_")
+	instance_temp = instance_temp.replace(":","_")
+	Conn_File_NameT = instance_temp + "_" + database + "_" + username    
+	
+	if os.environ.get("TEMP") == None:
+		temp = "c:\\temp"	
+	else:
+		temp = os.environ.get("TEMP")
+	
+	if os.environ.get("TMP") == None:
+		temp = "/usr/tmp"		
+	else:
+		temp = os.environ.get("TMP")  
+	
+
+	Connection_File_Name = Conn_File_NameT + ".sde"
+	Connection_File_Name_full_path = temp + os.sep + Conn_File_NameT + ".sde"
+	
+	# Check for the .sde file and delete it if present
+	arcpy.env.overwriteOutput=True
+	if os.path.exists(Connection_File_Name_full_path):
+		os.remove(Connection_File_Name_full_path)
+	
+	print "\nCreating Database Connection File...\n"	
+	# Process: Create Database Connection File...
+	# Usage:  out_file_location, out_file_name, DBMS_TYPE, instnace, database, account_authentication, username, password, save_username_password(must be true)
+	arcpy.CreateDatabaseConnection_management(out_folder_path=temp, out_name=Connection_File_Name, database_platform=database_type, instance=instance, database=database, account_authentication=account_authentication, username=username, password=password, save_user_pass="TRUE")
+        for i in range(arcpy.GetMessageCount()):
+		if "000565" in arcpy.GetMessage(i):   #Check if database connection was successful
+			arcpy.AddReturnMessage(i)
+			arcpy.AddMessage("\n+++++++++")
+			arcpy.AddMessage("Exiting!!")
+			arcpy.AddMessage("+++++++++\n")
+			sys.exit(3)            
+		else:
+			arcpy.AddReturnMessage(i)
+			arcpy.AddMessage("+++++++++\n")
+	
+	
+	# Process: Enable geodatabase...
+	try:
+		print "Enabling Enterprise Geodatabase...\n"
+		arcpy.EnableEnterpriseGeodatabase_management(input_database=Connection_File_Name_full_path, authorization_file=license)
+		for i in range(arcpy.GetMessageCount()):
+			arcpy.AddReturnMessage(i)
+		arcpy.AddMessage("+++++++++\n")
+	except:
+		for i in range(arcpy.GetMessageCount()):
+			arcpy.AddReturnMessage(i)
+			
+	if os.path.exists(Connection_File_Name_full_path):
+		os.remove(Connection_File_Name_full_path)
+			
+#Check if no value entered for option	
+except SystemExit as e:
+	if e.code == 2:
+		parser.usage = ""
+		print "\n"
+		parser.print_help() 
+		parser.exit(2)
